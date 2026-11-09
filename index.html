@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Aether Quest — 蒼空之境 2.5D 多人動作冒險 MMORPG</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚔️</text></svg>">
+  <style>
+    :root {
+      --gold: #f5af19;
+      --gold-dark: #e65c00;
+      --hp-color: #ff4757;
+      --mp-color: #00d2d3;
+      --stamina-color: #2ed573;
+      --bg-glass: rgba(16, 20, 30, 0.78);
+      --border-gold: 2px solid rgba(245, 175, 25, 0.65);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0a0e14;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang TC", "Microsoft JhengHei", sans-serif;
+      color: #fff;
+    }
+
+    #canvas-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    /* Floating Combat Text Layer */
+    #damage-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* HUD Layer */
+    #ui-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 20;
+      pointer-events: none;
+    }
+
+    .interactive {
+      pointer-events: auto;
+    }
+
+    /* Top Left: Player Status */
+    .top-left-panel {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-glass);
+      backdrop-filter: blur(8px);
+      padding: 10px 18px;
+      border-radius: 12px;
+      border: var(--border-gold);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+
+    .avatar-frame {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #f5af19, #e65c00);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      border: 2px solid #fff;
+      box-shadow: 0 0 10px rgba(245, 175, 25, 0.8);
+      position: relative;
+    }
+
+    .level-badge {
+      position: absolute;
+      bottom: -4px;
+      right: -4px;
+      background: #2f3542;
+      color: #f1c40f;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 2px 5px;
+      border-radius: 6px;
+      border: 1px solid var(--gold);
+    }
+
+    .bars-container {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 170px;
+    }
+
+    .player-name-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      font-weight: 700;
+      color: #f1f2f6;
+    }
+
+    .stat-bar {
+      height: 10px;
+      background: rgba(255,255,255,0.12);
+      border-radius: 6px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .stat-fill {
+      height: 100%;
+      width: 100%;
+      transition: width 0.15s ease-out;
+      border-radius: 6px;
+    }
+
+    .hp-fill { background: linear-gradient(90deg, #ff4757, #ff6b81); }
+    .mp-fill { background: linear-gradient(90deg, #00d2d3, #54a0ff); }
+    .stamina-fill { background: linear-gradient(90deg, #2ed573, #7bed9f); }
+
+    /* Top Right: Minimap & Network Room */
+    .top-right-panel {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
+    }
+
+    #minimap {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: rgba(10, 15, 25, 0.85);
+      border: 3px solid var(--gold);
+      box-shadow: 0 0 16px rgba(0,0,0,0.6);
+    }
+
+    .room-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-glass);
+      backdrop-filter: blur(8px);
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1px solid rgba(255,255,255,0.2);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .room-badge:hover {
+      border-color: var(--gold);
+      transform: scale(1.03);
+    }
+
+    .dot-online {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #2ed573;
+      box-shadow: 0 0 8px #2ed573;
+    }
+
+    /* Top Center: Boss Health Bar */
+    #boss-bar-container {
+      position: absolute;
+      top: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(540px, 90vw);
+      background: var(--bg-glass);
+      backdrop-filter: blur(8px);
+      padding: 10px 16px;
+      border-radius: 12px;
+      border: 2px solid #e74c3c;
+      box-shadow: 0 0 24px rgba(231, 76, 60, 0.4);
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .boss-name-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      font-weight: 800;
+      color: #ff6b81;
+    }
+
+    .boss-hp-bar {
+      height: 14px;
+      background: #333;
+      border-radius: 7px;
+      overflow: hidden;
+    }
+
+    .boss-hp-fill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #c0392b, #e74c3c, #ff7979);
+      transition: width 0.15s ease-out;
+    }
+
+    /* Bottom Center: Skill & Action Bar */
+    .action-bar {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-glass);
+      backdrop-filter: blur(10px);
+      padding: 10px 18px;
+      border-radius: 18px;
+      border: var(--border-gold);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+    }
+
+    .skill-slot {
+      width: 56px;
+      height: 56px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.06);
+      border: 2px solid rgba(255,255,255,0.2);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .skill-slot:hover {
+      border-color: var(--gold);
+      transform: translateY(-3px);
+    }
+
+    .skill-slot:active {
+      transform: scale(0.95);
+    }
+
+    .skill-icon {
+      font-size: 24px;
+    }
+
+    .skill-key {
+      position: absolute;
+      bottom: 2px;
+      right: 4px;
+      font-size: 10px;
+      color: var(--gold);
+      font-weight: 800;
+    }
+
+    .cooldown-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.7);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      font-weight: 800;
+      color: #fff;
+      display: none;
+    }
+
+    /* Bottom Left: Chat & Quick Phrases */
+    .chat-panel {
+      position: absolute;
+      bottom: 24px;
+      left: 16px;
+      width: 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .chat-messages {
+      height: 110px;
+      overflow-y: auto;
+      background: rgba(10, 15, 25, 0.65);
+      backdrop-filter: blur(6px);
+      border-radius: 10px;
+      padding: 8px;
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .chat-input-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    .chat-input {
+      flex: 1;
+      background: rgba(20,25,35,0.8);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      padding: 6px 10px;
+      color: #fff;
+      font-size: 12px;
+      outline: none;
+    }
+    .chat-input:focus {
+      border-color: var(--gold);
+    }
+
+    .chat-send-btn {
+      background: linear-gradient(135deg, #f5af19, #e65c00);
+      border: none;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 6px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    .quick-phrases {
+      display: flex;
+      gap: 4px;
+    }
+    .quick-btn {
+      background: rgba(255,255,255,0.1);
+      border: none;
+      color: #ddd;
+      font-size: 10px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .quick-btn:hover {
+      background: rgba(245, 175, 25, 0.3);
+      color: #fff;
+    }
+
+    /* Inventory Drawer Modal */
+    #inventory-modal {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(520px, 92vw);
+      background: #141a24;
+      border: var(--border-gold);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.85);
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+      z-index: 50;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.15);
+      padding-bottom: 10px;
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--gold);
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: #aaa;
+      font-size: 22px;
+      cursor: pointer;
+    }
+
+    .equipment-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .equip-slot {
+      height: 80px;
+      background: rgba(255,255,255,0.05);
+      border: 1px dashed rgba(255,255,255,0.3);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      font-size: 12px;
+    }
+
+    .inv-list {
+      max-height: 220px;
+      overflow-y: auto;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      background: rgba(0,0,0,0.3);
+      padding: 10px;
+      border-radius: 10px;
+    }
+
+    .item-card {
+      background: rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      text-align: center;
+      border: 1px solid transparent;
+      transition: all 0.15s;
+    }
+
+    .item-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+
+    /* Rarity Borders */
+    .rarity-common { border-color: #bdc3c7; color: #bdc3c7; }
+    .rarity-magic { border-color: #3498db; color: #3498db; }
+    .rarity-rare { border-color: #f1c40f; color: #f1c40f; }
+    .rarity-epic { border-color: #9b59b6; color: #9b59b6; }
+    .rarity-legendary { border-color: #e67e22; color: #e67e22; box-shadow: 0 0 8px rgba(230,126,34,0.5); }
+    .rarity-divine { border-color: #00f0ff; color: #00f0ff; box-shadow: 0 0 12px rgba(0,240,255,0.7); }
+
+    /* Loot Notification Toast */
+    #loot-toast {
+      position: absolute;
+      top: 90px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg-glass);
+      backdrop-filter: blur(8px);
+      border: var(--border-gold);
+      padding: 8px 20px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      display: none;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+      animation: bounce 0.3s ease-out;
+    }
+
+    @keyframes bounce {
+      0% { transform: translate(-50%, -20px); opacity: 0; }
+      100% { transform: translate(-50%, 0); opacity: 1; }
+    }
+
+    /* Floating Combat Text items */
+    .f-text {
+      position: absolute;
+      font-weight: 900;
+      font-size: 18px;
+      text-shadow: 0 2px 4px #000, 0 0 6px rgba(0,0,0,0.8);
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      animation: floatUp 0.75s ease-out forwards;
+    }
+
+    @keyframes floatUp {
+      0% { opacity: 1; transform: translate(-50%, 0) scale(1.2); }
+      50% { opacity: 1; transform: translate(-50%, -25px) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -45px) scale(0.8); }
+    }
+
+    /* Audio Toggle */
+    .audio-btn {
+      position: absolute;
+      top: 16px;
+      left: 280px;
+      background: var(--bg-glass);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    /* Controls Help Toast */
+    .controls-help {
+      position: absolute;
+      bottom: 110px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.4);
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 11px;
+      color: rgba(255,255,255,0.7);
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="damage-layer"></div>
+
+  <div id="ui-layer">
+    <!-- Top Left: Hero HUD -->
+    <div class="top-left-panel interactive">
+      <div class="avatar-frame">
+        ⚔️
+        <div class="level-badge" id="level-badge">Lv.1</div>
+      </div>
+      <div class="bars-container">
+        <div class="player-name-row">
+          <span id="player-name-display">蒼空劍士 (You)</span>
+          <span id="hp-text" style="font-size: 11px; color: #ff6b81;">100 / 100</span>
+        </div>
+        <div class="stat-bar"><div class="stat-fill hp-fill" id="hp-bar" style="width: 100%;"></div></div>
+        <div class="stat-bar"><div class="stat-fill mp-fill" id="mp-bar" style="width: 100%;"></div></div>
+        <div class="stat-bar"><div class="stat-fill stamina-fill" id="stamina-bar" style="width: 100%;"></div></div>
+      </div>
+    </div>
+
+    <!-- Audio Toggle -->
+    <button class="audio-btn interactive" id="audio-toggle-btn" title="切換音效">🔊 音效: 開</button>
+
+    <!-- Top Right: Minimap & Room info -->
+    <div class="top-right-panel interactive">
+      <canvas id="minimap" width="120" height="120"></canvas>
+      <div class="room-badge" id="room-badge" title="點擊複製邀請連結">
+        <div class="dot-online"></div>
+        <span id="room-name-text">房間: aether-prime</span>
+        <span id="peers-count-text">(1人)</span>
+      </div>
+    </div>
+
+    <!-- Top Center: Boss Bar -->
+    <div id="boss-bar-container">
+      <div class="boss-name-row">
+        <span>【太古以太巨像・泰坦】</span>
+        <span id="boss-hp-text">1200 / 1200</span>
+      </div>
+      <div class="boss-hp-bar">
+        <div class="boss-hp-fill" id="boss-hp-fill" style="width: 100%;"></div>
+      </div>
+    </div>
+
+    <!-- Loot Toast notification -->
+    <div id="loot-toast">✨ 獲得了裝備：生鏽的以太巨劍！</div>
+
+    <!-- Controls hint -->
+    <div class="controls-help">WASD / 方向鍵移動 ｜ 空白鍵 / 左鍵普通三段斬 ｜ Shift 閃避翻滾 ｜ 1 / 2 / 3 技能 ｜ B 背包</div>
+
+    <!-- Bottom Center: Action / Skill Bar -->
+    <div class="action-bar interactive">
+      <div class="skill-slot" id="slot-attack" title="普通攻擊 [空白鍵 / 滑鼠左鍵]">
+        <span class="skill-icon">⚔️</span>
+        <span class="skill-key">Space</span>
+      </div>
+      <div class="skill-slot" id="slot-skill1" title="疾風旋刃 (Whirlwind) [按鍵 1]">
+        <span class="skill-icon">🌪️</span>
+        <span class="skill-key">1</span>
+        <div class="cooldown-overlay" id="cd-1">3</div>
+      </div>
+      <div class="skill-slot" id="slot-skill2" title="以太天衝 (Aether Beam) [按鍵 2]">
+        <span class="skill-icon">⚡</span>
+        <span class="skill-key">2</span>
+        <div class="cooldown-overlay" id="cd-2">5</div>
+      </div>
+      <div class="skill-slot" id="slot-skill3" title="聖樹祈願 (Sanctuary Heal) [按鍵 3]">
+        <span class="skill-icon">🌿</span>
+        <span class="skill-key">3</span>
+        <div class="cooldown-overlay" id="cd-3">8</div>
+      </div>
+      <div class="skill-slot" id="slot-dash" title="衝刺翻滾 (Dodge Roll) [Shift / 滑鼠右鍵]">
+        <span class="skill-icon">💨</span>
+        <span class="skill-key">Shift</span>
+        <div class="cooldown-overlay" id="cd-dash">1</div>
+      </div>
+      <div class="skill-slot" id="slot-inventory" title="背包與裝備 [按鍵 B]">
+        <span class="skill-icon">🎒</span>
+        <span class="skill-key">B</span>
+      </div>
+    </div>
+
+    <!-- Bottom Left: Chat Box -->
+    <div class="chat-panel interactive">
+      <div class="chat-messages" id="chat-messages">
+        <div style="color: #f5af19;">[系統] 歡迎來到以太之境 (Aether Quest)！</div>
+        <div style="color: #a0d8ef;">[提示] 邀請朋友打開同一個網址即可無伺服器 P2P 即時連線打怪！</div>
+      </div>
+      <div class="quick-phrases">
+        <button class="quick-btn" data-msg="⚔️ 集合打 Boss！">⚔️ 打Boss</button>
+        <button class="quick-btn" data-msg="🛡️ 我來扛傷害！">🛡️ 扛傷</button>
+        <button class="quick-btn" data-msg="✨ 感謝隊友！">✨ 謝謝</button>
+      </div>
+      <div class="chat-input-row">
+        <input type="text" class="chat-input" id="chat-input" placeholder="輸入聊天訊息..." maxlength="60">
+        <button class="chat-send-btn" id="chat-send-btn">發送</button>
+      </div>
+    </div>
+
+    <!-- Inventory / Equipment Modal -->
+    <div id="inventory-modal" class="interactive">
+      <div class="modal-header">
+        <span class="modal-title">🎒 冒險者背包與裝備</span>
+        <button class="modal-close" id="modal-close-btn">&times;</button>
+      </div>
+
+      <div style="font-size: 13px; font-weight: 700; color: #ddd;">當前裝備</div>
+      <div class="equipment-grid">
+        <div class="equip-slot" id="equip-weapon"><span>🗡️ 武器</span><span style="color:#aaa;">空</span></div>
+        <div class="equip-slot" id="equip-shield"><span>🛡️ 盾牌</span><span style="color:#aaa;">空</span></div>
+        <div class="equip-slot" id="equip-armor"><span>🥋 胸甲</span><span style="color:#aaa;">空</span></div>
+        <div class="equip-slot" id="equip-amulet"><span>💎 護符</span><span style="color:#aaa;">空</span></div>
+      </div>
+
+      <div style="font-size: 13px; font-weight: 700; color: #ddd; display: flex; justify-content: space-between;">
+        <span>背包物品 (點擊裝備)</span>
+        <span id="inv-count" style="font-size: 11px; color: #aaa;">0 / 24</span>
+      </div>
+      <div class="inv-list" id="inv-list"></div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
