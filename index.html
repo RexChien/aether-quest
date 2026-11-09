@@ -514,18 +514,174 @@
       100% { opacity: 0; transform: translate(-50%, -45px) scale(0.8); }
     }
 
-    /* Audio Toggle */
-    .audio-btn {
+    /* Top HUD Buttons (Audio, Auto, Gambit) */
+    .top-buttons-bar {
       position: absolute;
       top: 16px;
       left: 280px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .hud-btn {
       background: var(--bg-glass);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.25);
+      color: #fff;
+      padding: 8px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+
+    .hud-btn:hover {
+      border-color: var(--gold);
+      transform: translateY(-2px);
+    }
+
+    .hud-btn.active {
+      background: linear-gradient(135deg, #2ed573, #10ac84);
+      border-color: #2ed573;
+      box-shadow: 0 0 12px rgba(46, 213, 115, 0.5);
+    }
+
+    .hud-btn.inactive {
+      background: rgba(47, 53, 66, 0.8);
+      border-color: rgba(255,255,255,0.2);
+      color: #a4b0be;
+    }
+
+    /* Gambit Modal */
+    #gambit-modal {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(580px, 94vw);
+      max-height: 85vh;
+      overflow-y: auto;
+      background: #141a24;
+      border: var(--border-gold);
+      border-radius: 16px;
+      padding: 22px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.85);
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+      z-index: 55;
+    }
+
+    .gambit-rule-card {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      transition: all 0.15s;
+    }
+
+    .gambit-rule-card:hover {
+      background: rgba(255,255,255,0.09);
+      border-color: rgba(245, 175, 25, 0.5);
+    }
+
+    .gambit-rule-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+    }
+
+    .gambit-rule-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #f1f2f6;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .gambit-rule-desc {
+      font-size: 12px;
+      color: #a4b0be;
+    }
+
+    .gambit-switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+    }
+
+    .gambit-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .gambit-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #57606f;
+      transition: .3s;
+      border-radius: 24px;
+    }
+
+    .gambit-slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
+
+    input:checked + .gambit-slider {
+      background-color: #2ed573;
+    }
+
+    input:checked + .gambit-slider:before {
+      transform: translateX(20px);
+    }
+
+    .preset-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .preset-btn {
+      flex: 1;
+      min-width: 120px;
+      background: rgba(255,255,255,0.08);
       border: 1px solid rgba(255,255,255,0.2);
       color: #fff;
+      font-size: 12px;
+      font-weight: 700;
       padding: 8px 12px;
-      border-radius: 10px;
-      font-size: 14px;
+      border-radius: 8px;
       cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .preset-btn:hover {
+      background: rgba(245, 175, 25, 0.3);
+      border-color: var(--gold);
     }
 
     /* Controls Help Toast */
@@ -534,11 +690,13 @@
       bottom: 110px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(0,0,0,0.4);
-      padding: 4px 12px;
-      border-radius: 12px;
-      font-size: 11px;
-      color: rgba(255,255,255,0.7);
+      background: rgba(0,0,0,0.5);
+      backdrop-filter: blur(4px);
+      padding: 6px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      color: rgba(255,255,255,0.85);
+      border: 1px solid rgba(255,255,255,0.15);
       pointer-events: none;
     }
   </style>
@@ -565,8 +723,12 @@
       </div>
     </div>
 
-    <!-- Audio Toggle -->
-    <button class="audio-btn interactive" id="audio-toggle-btn" title="切換音效">🔊 音效: 開</button>
+    <!-- Top HUD Buttons: Auto-Gambit, Gambit Settings, Audio -->
+    <div class="top-buttons-bar interactive">
+      <button class="hud-btn active" id="auto-toggle-btn" title="切換 FF12 戰術自動施法與戰鬥 (快捷鍵 Z)">🤖 戰術自動: 開</button>
+      <button class="hud-btn" id="gambit-toggle-btn" title="開啟 FF12 戰略戰術設定 (快捷鍵 G)">⚖️ 戰術設定</button>
+      <button class="hud-btn" id="audio-toggle-btn" title="切換音效">🔊 音效: 開</button>
+    </div>
 
     <!-- Top Right: Minimap & Room info -->
     <div class="top-right-panel interactive">
@@ -592,8 +754,8 @@
     <!-- Loot Toast notification -->
     <div id="loot-toast">✨ 獲得了裝備：生鏽的以太巨劍！</div>
 
-    <!-- Controls hint -->
-    <div class="controls-help">WASD / 方向鍵移動 ｜ 空白鍵 / 左鍵普通三段斬 ｜ Shift 閃避翻滾 ｜ 1 / 2 / 3 技能 ｜ B 背包</div>
+    <!-- Controls hint (Accessibility friendly) -->
+    <div class="controls-help">🖱️ 單手滑鼠點擊/按住即可走位 ｜ 🤖 FF12 自動戰術施法中 ｜ 鍵盤 WASD / 123 亦可手動 ｜ Z 切換自動 ｜ G 戰術設定 ｜ B 背包</div>
 
     <!-- Bottom Center: Action / Skill Bar -->
     <div class="action-bar interactive">
@@ -664,6 +826,32 @@
         <span id="inv-count" style="font-size: 11px; color: #aaa;">0 / 24</span>
       </div>
       <div class="inv-list" id="inv-list"></div>
+    </div>
+
+    <!-- FF12 Gambit Tactical Modal (Accessibility-First) -->
+    <div id="gambit-modal" class="interactive">
+      <div class="modal-header">
+        <div>
+          <span class="modal-title">⚖️ FF12 戰略戰術設定 (Gambit System)</span>
+          <div style="font-size: 11px; color: #a4b0be; margin-top: 3px;">
+            身障無障礙模式：配置條件策略後，<strong>只需單手滑鼠點擊/按住地面走位</strong>，即可全自動普攻、放招、回血與閃避！
+          </div>
+        </div>
+        <button class="modal-close" id="gambit-modal-close-btn">&times;</button>
+      </div>
+
+      <!-- Quick Presets -->
+      <div style="font-size: 12px; font-weight: 700; color: var(--gold);">快速戰術預設</div>
+      <div class="preset-row">
+        <button class="preset-btn" id="preset-onehand">🎮 純滑鼠身障單手</button>
+        <button class="preset-btn" id="preset-dps">⚔️ 全力輸出討伐</button>
+        <button class="preset-btn" id="preset-safe">🛡️ 穩健生存回血</button>
+        <button class="preset-btn" id="preset-manual">🕹️ 全手動操作</button>
+      </div>
+
+      <!-- Rules List -->
+      <div style="font-size: 12px; font-weight: 700; color: #ddd;">戰術規則優先級 (由上至下自動判定)</div>
+      <div id="gambit-rules-container" style="display: flex; flex-direction: column; gap: 8px;"></div>
     </div>
   </div>
 

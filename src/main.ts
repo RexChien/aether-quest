@@ -5,6 +5,7 @@ import { createMonsterManager } from './monsters';
 import { LootManager } from './loot';
 import { initNetwork, NetworkManager } from './network';
 import { sound } from './audio';
+import { gambitSystem, GambitContext } from './gambit';
 import { PlayerStats, Item, Monster } from './types';
 
 // Room ID from URL hash (#room=xyz) or default
@@ -24,6 +25,19 @@ container.appendChild(renderer.domElement);
 
 // World & Environment
 const world = createWorld(scene);
+
+// Visual Click Destination Marker (for Mouse-Move)
+const destMarkerGeo = new THREE.RingGeometry(0.3, 0.65, 20);
+destMarkerGeo.rotateX(-Math.PI / 2);
+const destMarkerMat = new THREE.MeshBasicMaterial({
+  color: 0xf5af19,
+  side: THREE.DoubleSide,
+  transparent: true,
+  opacity: 0
+});
+const destMarkerMesh = new THREE.Mesh(destMarkerGeo, destMarkerMat);
+destMarkerMesh.position.y = 0.08;
+scene.add(destMarkerMesh);
 
 // Local Hero setup
 const playerColor = 0x2e86de; // Blue tunic
@@ -143,13 +157,78 @@ function updatePeersBadge() {
   if (countEl) countEl.innerText = `(${peersCount}人)`;
 }
 
-// Input state
+// Mouse Click-to-Move & Touch Controls (Accessibility Feature)
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+let targetMovePos: THREE.Vector3 | null = null;
+let isMouseDown: boolean = false;
+
+function setTargetMoveFromScreen(clientX: number, clientY: number) {
+  mouse.x = (clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+
+  const hitPoint = new THREE.Vector3();
+  if (raycaster.ray.intersectPlane(floorPlane, hitPoint)) {
+    if (world.isWalkable(hitPoint.x, hitPoint.z)) {
+      targetMovePos = hitPoint;
+      destMarkerMesh.position.set(hitPoint.x, 0.08, hitPoint.z);
+      destMarkerMat.opacity = 0.8;
+    }
+  }
+}
+
+window.addEventListener('mousedown', (e) => {
+  if ((e.target as HTMLElement).closest('.interactive')) return;
+  sound.startBGM();
+  isMouseDown = true;
+  setTargetMoveFromScreen(e.clientX, e.clientY);
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (isMouseDown) {
+    setTargetMoveFromScreen(e.clientX, e.clientY);
+  }
+});
+
+window.addEventListener('mouseup', () => {
+  isMouseDown = false;
+});
+
+// Touch support for tablets and phones
+window.addEventListener('touchstart', (e) => {
+  if ((e.target as HTMLElement).closest('.interactive')) return;
+  sound.startBGM();
+  if (e.touches.length > 0) {
+    isMouseDown = true;
+    setTargetMoveFromScreen(e.touches[0].clientX, e.touches[0].clientY);
+  }
+});
+
+window.addEventListener('touchmove', (e) => {
+  if (isMouseDown && e.touches.length > 0) {
+    setTargetMoveFromScreen(e.touches[0].clientX, e.touches[0].clientY);
+  }
+});
+
+window.addEventListener('touchend', () => {
+  isMouseDown = false;
+});
+
+// Keyboard Input state
 const keys: Record<string, boolean> = {};
 const moveVec = new THREE.Vector3();
 
 window.addEventListener('keydown', (e) => {
   keys[e.code] = true;
   sound.startBGM();
+
+  // Any keyboard movement cancels mouse destination
+  if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+    targetMovePos = null;
+    destMarkerMat.opacity = 0;
+  }
 
   if (e.code === 'Space') {
     e.preventDefault();
@@ -165,6 +244,10 @@ window.addEventListener('keydown', (e) => {
     triggerSkill3();
   } else if (e.code === 'KeyB') {
     toggleInventory();
+  } else if (e.code === 'KeyZ') {
+    toggleAutoGambit();
+  } else if (e.code === 'KeyG') {
+    toggleGambitModal();
   }
 });
 
@@ -227,13 +310,15 @@ function triggerHeroAttack() {
   });
 }
 
-function triggerHeroDash() {
+function triggerHeroDash(customDir?: THREE.Vector3) {
   if (cooldowns.dash > 0 || stats.stamina < 20) return;
   cooldowns.dash = 1.0;
   stats.stamina -= 20;
 
-  // Dash in current facing or movement direction
-  const dir = moveVec.lengthSq() > 0.01
+  // Dash in custom or current movement/facing direction
+  const dir = customDir
+    ? customDir.clone().normalize()
+    : moveVec.lengthSq() > 0.01
     ? moveVec.clone().normalize()
     : new THREE.Vector3(Math.sin(hero.mesh.rotation.y), 0, Math.cos(hero.mesh.rotation.y));
 
@@ -330,12 +415,12 @@ function triggerSkill3() {
   spawnFloatingText(hero.mesh.position, `+${healAmount} HP`, '#2ed573');
 }
 
-// Click to Attack / Buttons
+// Click to Attack / Action Slots
 document.getElementById('slot-attack')!.onclick = triggerHeroAttack;
 document.getElementById('slot-skill1')!.onclick = triggerSkill1;
 document.getElementById('slot-skill2')!.onclick = triggerSkill2;
 document.getElementById('slot-skill3')!.onclick = triggerSkill3;
-document.getElementById('slot-dash')!.onclick = triggerHeroDash;
+document.getElementById('slot-dash')!.onclick = () => triggerHeroDash();
 document.getElementById('slot-inventory')!.onclick = toggleInventory;
 
 // Audio toggle
@@ -343,6 +428,121 @@ const audioBtn = document.getElementById('audio-toggle-btn')!;
 audioBtn.onclick = () => {
   const isEnabled = sound.toggle();
   audioBtn.innerText = isEnabled ? '🔊 音效: 開' : '🔇 音效: 關';
+};
+
+// Auto-Gambit HUD Toggle
+const autoToggleBtn = document.getElementById('auto-toggle-btn')!;
+function updateAutoToggleUI() {
+  if (gambitSystem.enabled) {
+    autoToggleBtn.className = 'hud-btn active interactive';
+    autoToggleBtn.innerText = '🤖 戰術自動: 開';
+  } else {
+    autoToggleBtn.className = 'hud-btn inactive interactive';
+    autoToggleBtn.innerText = '🤖 戰術自動: 關';
+  }
+}
+function toggleAutoGambit() {
+  gambitSystem.toggle();
+  updateAutoToggleUI();
+  addChatMessage(`[戰術系統] FF12 自動戰術施法已${gambitSystem.enabled ? '【開啟】' : '【關閉】'}`, '#f5af19');
+}
+autoToggleBtn.onclick = toggleAutoGambit;
+updateAutoToggleUI();
+
+// Gambit Modal & Presets
+const gambitModal = document.getElementById('gambit-modal')!;
+const gambitToggleBtn = document.getElementById('gambit-toggle-btn')!;
+const gambitCloseBtn = document.getElementById('gambit-modal-close-btn')!;
+
+function toggleGambitModal() {
+  const isOpen = gambitModal.style.display === 'flex';
+  gambitModal.style.display = isOpen ? 'none' : 'flex';
+  if (!isOpen) {
+    renderGambitRulesUI();
+  }
+}
+
+gambitToggleBtn.onclick = toggleGambitModal;
+gambitCloseBtn.onclick = toggleGambitModal;
+
+function renderGambitRulesUI() {
+  const container = document.getElementById('gambit-rules-container')!;
+  container.innerHTML = '';
+
+  gambitSystem.rules.forEach((rule, idx) => {
+    const card = document.createElement('div');
+    card.className = 'gambit-rule-card';
+
+    const actionBadge = {
+      heal: '🌿 聖樹祈願',
+      dodge: '💨 衝刺翻滾',
+      whirlwind: '🌪️ 疾風旋刃',
+      beam: '⚡ 以太天衝',
+      attack: '⚔️ 三段連斬'
+    }[rule.action];
+
+    card.innerHTML = `
+      <div class="gambit-rule-info">
+        <div class="gambit-rule-title">
+          <span>#${idx + 1} ${rule.name}</span>
+          <span style="font-size: 11px; padding: 2px 8px; border-radius: 6px; background: rgba(245,175,25,0.2); color: var(--gold);">${actionBadge}</span>
+        </div>
+        <div class="gambit-rule-desc">${rule.description}</div>
+      </div>
+      <label class="gambit-switch">
+        <input type="checkbox" ${rule.enabled ? 'checked' : ''}>
+        <span class="gambit-slider"></span>
+      </label>
+    `;
+
+    const checkbox = card.querySelector('input')!;
+    checkbox.onchange = () => {
+      rule.enabled = checkbox.checked;
+      gambitSystem.saveToStorage();
+    };
+
+    container.appendChild(card);
+  });
+}
+
+// Preset Buttons
+document.getElementById('preset-onehand')!.onclick = () => {
+  gambitSystem.enabled = true;
+  gambitSystem.rules.forEach(r => r.enabled = true);
+  gambitSystem.saveToStorage();
+  updateAutoToggleUI();
+  renderGambitRulesUI();
+  addChatMessage('[戰術預設] 已切換至【純滑鼠身障單手模式】：只需滑鼠走位即可自動戰鬥與應對危險！', '#2ed573');
+};
+
+document.getElementById('preset-dps')!.onclick = () => {
+  gambitSystem.enabled = true;
+  gambitSystem.rules.forEach(r => {
+    r.enabled = r.action !== 'heal';
+  });
+  gambitSystem.saveToStorage();
+  updateAutoToggleUI();
+  renderGambitRulesUI();
+  addChatMessage('[戰術預設] 已切換至【全力輸出討伐模式】！', '#f5af19');
+};
+
+document.getElementById('preset-safe')!.onclick = () => {
+  gambitSystem.enabled = true;
+  gambitSystem.rules.forEach(r => {
+    if (r.action === 'heal' || r.action === 'dodge') r.enabled = true;
+  });
+  gambitSystem.saveToStorage();
+  updateAutoToggleUI();
+  renderGambitRulesUI();
+  addChatMessage('[戰術預設] 已切換至【穩健生存回血模式】！', '#00d2d3');
+};
+
+document.getElementById('preset-manual')!.onclick = () => {
+  gambitSystem.enabled = false;
+  gambitSystem.saveToStorage();
+  updateAutoToggleUI();
+  renderGambitRulesUI();
+  addChatMessage('[戰術預設] 已切換至【全手動模式】！', '#ff4757');
 };
 
 // Room badge click: copy link
@@ -528,6 +728,7 @@ window.addEventListener('resize', () => {
 
 // Broadcast 20Hz Network State
 let netBroadcastTimer = 0;
+let gambitTimer = 0;
 
 // Main Game Loop
 const clock = new THREE.Clock();
@@ -563,14 +764,34 @@ function animate() {
   stats.stamina = Math.min(stats.maxStamina, stats.stamina + delta * 18);
   stats.mp = Math.min(stats.maxMp, stats.mp + delta * 5);
 
-  // 2. Handle Player Movement
+  // Fade out destination marker if close
+  if (destMarkerMat.opacity > 0) {
+    destMarkerMat.opacity = Math.max(0, destMarkerMat.opacity - delta * 0.8);
+  }
+
+  // 2. Handle Player Movement (WASD Keyboard OR Mouse-to-Move)
   moveVec.set(0, 0, 0);
   if (keys['KeyW'] || keys['ArrowUp']) moveVec.z -= 1;
   if (keys['KeyS'] || keys['ArrowDown']) moveVec.z += 1;
   if (keys['KeyA'] || keys['ArrowLeft']) moveVec.x -= 1;
   if (keys['KeyD'] || keys['ArrowRight']) moveVec.x += 1;
 
-  const isMoving = moveVec.lengthSq() > 0.01;
+  let isMoving = moveVec.lengthSq() > 0.01;
+
+  // If no keyboard input, check mouse target destination
+  if (!isMoving && targetMovePos) {
+    const dx = targetMovePos.x - hero.mesh.position.x;
+    const dz = targetMovePos.z - hero.mesh.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+
+    if (dist > 0.35) {
+      moveVec.set(dx / dist, 0, dz / dist);
+      isMoving = true;
+    } else {
+      targetMovePos = null;
+      destMarkerMat.opacity = 0;
+    }
+  }
 
   if (isMoving && !hero.isDashing) {
     moveVec.normalize();
@@ -589,11 +810,96 @@ function animate() {
     hero.mesh.rotation.y = THREE.MathUtils.lerp(hero.mesh.rotation.y, targetAngle, delta * 15);
   }
 
+  // 3. Evaluate FF12 Gambit Auto-Battle System (every 0.08s)
+  gambitTimer += delta;
+  if (gambitTimer >= 0.08 && gambitSystem.enabled) {
+    gambitTimer = 0;
+
+    // Gather combat context
+    const hpPct = (stats.hp / stats.maxHp) * 100;
+    let inTelegraph = false;
+    let dangerDir = new THREE.Vector3(0, 0, 0);
+    let nearbyCount = 0;
+    let bossInRange = false;
+    let closestDist = 999;
+    let closestMon: Monster | null = null;
+    let bossMon: Monster | null = null;
+
+    monsterManager.monsters.forEach(m => {
+      if (m.state === 'dead') return;
+      const dx = m.meshGroup.position.x - hero.mesh.position.x;
+      const dz = m.meshGroup.position.z - hero.mesh.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+
+      if (dist < closestDist) {
+        closestDist = dist;
+        closestMon = m;
+      }
+
+      if (dist < 4.2) {
+        nearbyCount++;
+      }
+
+      if (m.type === 'boss') {
+        bossMon = m;
+        if (dist < 14) bossInRange = true;
+      }
+
+      // Check if inside danger telegraph circle
+      if (m.state === 'windup') {
+        const radius = m.range * (m.type === 'boss' ? 2.5 : 1.3);
+        if (dist <= radius) {
+          inTelegraph = true;
+          // Escape direction: away from monster center
+          dangerDir.set(-dx, 0, -dz).normalize();
+        }
+      }
+    });
+
+    const gambitCtx: GambitContext = {
+      hpPct,
+      mp: stats.mp,
+      stamina: stats.stamina,
+      inTelegraph,
+      nearbyEnemiesCount: nearbyCount,
+      bossInRange,
+      closestEnemyDist: closestDist,
+      cooldowns
+    };
+
+    const action = gambitSystem.evaluate(gambitCtx);
+
+    if (action === 'dodge') {
+      triggerHeroDash(dangerDir.lengthSq() > 0 ? dangerDir : undefined);
+    } else if (action === 'heal') {
+      triggerSkill3();
+    } else if (action === 'whirlwind') {
+      triggerSkill1();
+    } else if (action === 'beam') {
+      // Aim at boss if available, else closest
+      const target = bossMon || closestMon;
+      if (target) {
+        const tdx = target.meshGroup.position.x - hero.mesh.position.x;
+        const tdz = target.meshGroup.position.z - hero.mesh.position.z;
+        hero.mesh.rotation.y = Math.atan2(tdx, tdz);
+      }
+      triggerSkill2();
+    } else if (action === 'attack') {
+      // Auto aim at closest enemy
+      if (closestMon) {
+        const tdx = closestMon.meshGroup.position.x - hero.mesh.position.x;
+        const tdz = closestMon.meshGroup.position.z - hero.mesh.position.z;
+        hero.mesh.rotation.y = Math.atan2(tdx, tdz);
+      }
+      triggerHeroAttack();
+    }
+  }
+
   // Update Hero Character
   hero.update(delta, isMoving);
   hero.setNameTag('蒼空劍士 (You)', stats.hp, stats.maxHp);
 
-  // 3. Update Camera in 2.5D Isometric perspective
+  // 4. Update Camera in 2.5D Isometric perspective
   const camTargetPos = new THREE.Vector3(
     hero.mesh.position.x,
     hero.mesh.position.y + 24,
@@ -602,10 +908,10 @@ function animate() {
   camera.position.lerp(camTargetPos, delta * 8);
   camera.lookAt(hero.mesh.position.x, hero.mesh.position.y + 1.2, hero.mesh.position.z);
 
-  // 4. Update World
+  // 5. Update World
   world.update(delta, elapsed);
 
-  // 5. Update Monsters
+  // 6. Update Monsters
   monsterManager.update(delta, hero.mesh.position, (damage) => {
     // Player took damage
     const defBonus = lootManager.getTotalBonus().defense;
@@ -617,6 +923,7 @@ function animate() {
       // Respawn at sanctuary
       stats.hp = stats.maxHp;
       hero.mesh.position.set(0, 0, 8);
+      targetMovePos = null;
       addChatMessage('[系統] 你的守護結界發動，已於以太聖壇安全重生！', '#f5af19');
     }
   });
@@ -638,12 +945,12 @@ function animate() {
     bossBarContainer.style.display = 'none';
   }
 
-  // 6. Update Loot
+  // 7. Update Loot
   lootManager.update(delta, hero.mesh.position, (item) => {
     showLootToast(item);
   });
 
-  // 7. Update Multiplayer Networking
+  // 8. Update Multiplayer Networking
   if (network) {
     network.update(delta);
 
@@ -666,17 +973,17 @@ function animate() {
     }
   }
 
-  // 8. Update HUD Bars
+  // 9. Update HUD Bars
   document.getElementById('hp-bar')!.style.width = `${(stats.hp / stats.maxHp) * 100}%`;
   document.getElementById('hp-text')!.innerText = `${stats.hp} / ${stats.maxHp}`;
   document.getElementById('mp-bar')!.style.width = `${(stats.mp / stats.maxMp) * 100}%`;
   document.getElementById('stamina-bar')!.style.width = `${(stats.stamina / stats.maxStamina) * 100}%`;
   document.getElementById('level-badge')!.innerText = `Lv.${stats.level}`;
 
-  // 9. Draw Minimap Radar
+  // 10. Draw Minimap Radar
   drawMinimap();
 
-  // 10. Render 3D Scene
+  // 11. Render 3D Scene
   renderer.render(scene, camera);
 }
 
